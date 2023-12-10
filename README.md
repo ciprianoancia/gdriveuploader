@@ -21,7 +21,7 @@ git clone https://github.com/ciprianoancia/gdriveuploader.git
 Navigate to the Project Directory:
 
 ```bash
-cd google-drive-uploader
+cd gdriveuploader
 ```
 Install Dependencies:
 
