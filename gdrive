@@ -1,0 +1,160 @@
+#!/usr/local/php8.2/bin/php
+<?php
+##
+# This script uploads all new drutiny reports from files-private/reports to google drive. This is running as a cron job so reports are updated.  Ping
+# ciprian.oancia@acquia.com for any questions .
+##
+
+require_once __DIR__ . '/vendor/autoload.php'; // Include the Google API PHP Client
+
+//location of auth.json
+$authConfigPath = '';
+
+//location of your tojen.json
+$tokenFilePath = '';
+
+//the folder from your local machine that should be syncronised
+$sourceFolderPath = '';
+
+//the id of your Google drive folder that you shared it with (check Readme.md)
+$destinationFolderId = '';
+
+/**
+ *
+ */
+class GoogleDriveUploader
+{
+    /**
+     * @var Google_Client
+     */
+    private $client;
+    /**
+     * @var Google_Service_Drive
+     */
+    private $service;
+
+    /**
+     * @param $authConfigPath
+     * @param $tokenFilePath
+     * @throws Google_Exception
+     * @throws \Google\Exception
+     */
+    public function __construct($authConfigPath, $tokenFilePath)
+    {
+        $this->client = new Google_Client();
+        $this->client->setAuthConfig($authConfigPath);
+        $this->client->useApplicationDefaultCredentials();
+        $this->client->addScope(Google_Service_Drive::DRIVE);
+        $this->client->refreshTokenWithAssertion();
+        //$token = $this->client->getAccessToken();
+        if ($this->client->isAccessTokenExpired()) {
+            $this->client->fetchAccessTokenWithRefreshToken($client->getRefreshToken());
+            file_put_contents($tokenFilePath, json_encode($client->getAccessToken()));
+        }
+
+
+        $this->service = new Google_Service_Drive($this->client);
+    }
+
+    /**
+     * @param $name
+     * @param $folderId
+     * @return false
+     */
+    private function gdExists($name, $folderId)
+    {
+        $query = "'$folderId' in parents and name='$name'";
+        $results = $this->service->files->listFiles(['q' => $query]);
+        return count($results->getFiles()) > 0 ? $results->getFiles()[0]->id : false;
+    }
+
+    /**
+     * @param $sourceFolderPath
+     * @param $destinationFolderId
+     * @return void
+     */
+    private function upReports($sourceFolderPath, $destinationFolderId)
+    {
+        $files = scandir($sourceFolderPath);
+
+        foreach ($files as $file) {
+            if ($file != '.' && $file != '..') {
+                $filePath = $sourceFolderPath . DIRECTORY_SEPARATOR . $file;
+
+                if (is_dir($filePath)) {
+                    $subfolderId = $this->gdExists($file, $destinationFolderId);
+                    if ($subfolderId !== false) {
+                        $this->upReports($filePath, $subfolderId);
+                    } else {
+                        $subfolderId = $this->createFolder($file, $destinationFolderId);
+                        $this->upReports($filePath, $subfolderId);
+                    }
+                } else {
+                    if (!$this->gdExists($file, $destinationFolderId)) {
+                        $fileMetadata = new Google_Service_Drive_DriveFile([
+                            'name' => $file,
+                            'parents' => [$destinationFolderId]
+                        ]);
+
+                        $content = file_get_contents($filePath);
+                        $createdFile = $this->service->files->create($fileMetadata, [
+                            'data' => $content,
+                            'mimeType' => mime_content_type($filePath),
+                            'uploadType' => 'multipart'
+                        ]);
+
+                        echo "Uploaded report: $file into $destinationFolderId\n";
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * @param $folderName
+     * @param $parentId
+     * @return mixed
+     */
+    private function createFolder($folderName, $parentId)
+    {
+        $folderMetadata = new Google_Service_Drive_DriveFile([
+            'name' => $folderName,
+            'parents' => [$parentId],
+            'mimeType' => 'application/vnd.google-apps.folder'
+        ]);
+
+        $folder = $this->service->files->create($folderMetadata, ['fields' => 'id']);
+        echo "Created report: $folderName into $parentId\n";
+        return $folder->id;
+    }
+
+    /**
+     * @param $sourceFolderPath
+     * @param $destinationFolderId
+     * @return void
+     */
+    public function checkAndUploadFiles($sourceFolderPath, $destinationFolderId)
+    {
+        $folders = scandir($sourceFolderPath);
+
+        foreach ($folders as $folder) {
+            if ($folder != '.' && $folder != '..') {
+                $folderPath = $sourceFolderPath . DIRECTORY_SEPARATOR . $folder;
+                if (is_dir($folderPath)) {
+                    $driveFolderId = $this->gdExists($folder, $destinationFolderId);
+                    if ($driveFolderId !== false) {
+                        $this->upReports($folderPath, $driveFolderId);
+                    } else {
+                        $driveFolderId = $this->createFolder($folder, $destinationFolderId);
+                        $this->upReports($folderPath, $driveFolderId);
+                    }
+                }
+            }
+        }
+    }
+}
+
+
+
+$uploader = new GoogleDriveUploader($authConfigPath, $tokenFilePath);
+$uploader->checkAndUploadFiles($sourceFolderPath, $destinationFolderId);
