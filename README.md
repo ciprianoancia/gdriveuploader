@@ -7,7 +7,7 @@ This guide will walk you through the steps to set up and use the Google Drive Up
 
 Before proceeding, ensure you have the following installed and configured:
 
-- PHP (version 8.2 recommended)
+- PHP 8
 - Composer
 
 
