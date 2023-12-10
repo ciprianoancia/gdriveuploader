@@ -124,7 +124,7 @@ class GoogleDriveUploader
         ]);
 
         $folder = $this->service->files->create($folderMetadata, ['fields' => 'id']);
-        echo "Created report: $folderName into $parentId\n";
+        echo "Created folder: $folderName into $parentId\n";
         return $folder->id;
     }
 
